@@ -1,6 +1,6 @@
 {
   "name": "homebridge-openwebif-switch",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Plugin for Homebridge (https://github.com/nfarina/homebridge) to switch on/off standby mode of receivers with openwebif interface.",
   "license": "MIT",
   "keywords": [
