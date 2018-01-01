@@ -2,6 +2,8 @@ var Service, Characteristic;
 
 const ping = require('./hostportconnectable');
 const request = require('request');
+const xmlParser = require('xml2js').parseString;
+var inherits = require('util').inherits;
 
 module.exports = function (homebridge) {
 	Service = homebridge.hap.Service;
@@ -130,6 +132,75 @@ OpenWebifSwitchAccessory.prototype = {
 		});
 	},
 
+	setVolume: function (value, callback) {
+		this.log("setVolume" + value);
+		var targetValue = parseInt(value);
+
+		if (!this.host) {
+			callback(new Error("No host defined."));
+		}
+		if (!this.port) {
+			callback(new Error("No port defined."));
+		}
+
+		var me = this;
+		ping.checkHostIsReachable(me.host, me.port, function (reachable) {
+			if (reachable) {
+				me._httpRequest("http://" + me.host + ":" + me.port + "/web/vol?set=set" + targetValue, '', 'GET', function (error, response, responseBody) {
+					if (error) {
+						me.log('getVolume() failed: %s', error.message);
+						callback(error);
+					} else {
+						callback(null, targetValue);
+					}
+				}.bind(this));
+			} else {
+				callback(new Error("device is off"), null); //totally off
+			}
+		});
+	},
+
+	getVolume: function (callback) {
+		if (!this.host) {
+			callback(new Error("No host defined."));
+		}
+		if (!this.port) {
+			callback(new Error("No port defined."));
+		}
+
+		var me = this;
+		ping.checkHostIsReachable(me.host, me.port, function (reachable) {
+			if (reachable) {
+				me._httpRequest("http://" + me.host + ":" + me.port + "/web/vol?get", '', 'GET', function (error, response, responseBody) {
+					if (error) {
+						me.log('getVolume() failed: %s', error.message);
+						callback(error);
+					} else {
+						try {
+							var result = xmlParser(responseBody, function(err, data) {
+								if (err) {
+									callback(err, null);
+									me.log('error parsing: ' + err);
+								} else {
+									var xmlValue = data.e2volume.e2current[0];
+									var percentage = parseFloat(xmlValue);
+									var characteristicValue = percentage;// (percentage / 5.0) - 10.0; //auf 20 runterrechnen und auf -10 bis 10 ummappen.
+									me.log("received volume from vusolo: " + xmlValue + " mapped to " + characteristicValue);
+									callback(null, characteristicValue);
+								}
+							});
+						} catch (e) {
+							callback(e, null);
+							me.log('error parsing: ' + e);
+						}
+					}
+				}.bind(this));
+			} else {
+				callback(new Error("device is off"), null); //totally off
+			}
+		});
+	},
+
 	identify: function (callback) {
 		this.log("Identify requested!");
 		callback();
@@ -147,7 +218,39 @@ OpenWebifSwitchAccessory.prototype = {
 			.getCharacteristic(Characteristic.On)
 			.on('get', this.getPowerState.bind(this))
 			.on('set', this.setPowerState.bind(this));
-		return [informationService, this.switchService];
+
+			
+		this.switchService
+			.addCharacteristic(this.makeVolumeCharacteristic())
+			.on('get', this.getVolume.bind(this))
+			.on('set', this.setVolume.bind(this));
+
+		return [informationService, this.switchService ];
+	},
+
+	/**
+	 * Custom characteristic for volume
+	 *
+	 * @return {Characteristic} The volume characteristic
+	 */
+	makeVolumeCharacteristic : function() {
+	
+		var volumeCharacteristic = function() {
+			Characteristic.call(this, 'Volume', '91288267-5678-49B2-8D22-F57BE995AA00');
+			this.setProps({
+				format: Characteristic.Formats.INT,
+				unit: Characteristic.Units.PERCENTAGE,
+				maxValue: 100,
+				minValue: 0,
+				minStep: 1,
+				perms: [Characteristic.Perms.READ, Characteristic.Perms.WRITE, Characteristic.Perms.NOTIFY]
+			});
+			//this.value = this.getDefaultValue();
+			this.value = 50;
+		};
+	
+		inherits(volumeCharacteristic, Characteristic);
+		return volumeCharacteristic;
 	},
 
 	_httpRequest: function (url, body, method, callback) {
