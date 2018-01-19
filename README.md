@@ -3,7 +3,7 @@
 Can switch tv receivers (like dreambox or vusolo2) which run openwebif as web interface.
 
 HomeBridge: https://github.com/nfarina/homebridge
-
+Original: https://github.com/alex224/homebridge-openwebif-switch
 # Installation
 
 1. Install homebridge using: npm install -g homebridge
@@ -19,8 +19,11 @@ HomeBridge: https://github.com/nfarina/homebridge
             "name": "Receiver Standby",
             "host": "vusolo2",
             <i>"port": 80,</i>
-            <i>"checkIntervalSeconds": 120</i>
+            <i>"checkIntervalSeconds": 120,</i>
+            <i>"includeIP" : true,</i>
+            <i>"excludeSpeakerService" : false</i>
         }
     ]
 </pre>
+
 optional settings written in italic font

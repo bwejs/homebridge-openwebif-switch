@@ -8,10 +8,14 @@
     "description": "HomeBridge OpenWebif Standby Switch",
     "accessories": [
         {
-            "accessory": "OpenWebifSwitch",
-            "name": "Receiver Standby",
-            "host": "vusolo2",
-            "port": 80
+          "accessory": "OpenWebifSwitch",
+          "name": "Receiver Standby",
+          "host": "vusolo2",
+          "port": 80,
+          "checkIntervalSeconds": 120,
+          "includeIP" : true,
+          "excludeSpeakerService" : false
+
         }
     ]
 }
