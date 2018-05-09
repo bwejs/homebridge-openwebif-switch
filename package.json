@@ -13,14 +13,14 @@
   "author": {
     "name": "Alexander Heinze"
   },
-  "contributors":[
-  ], 
+  "contributors": [],
   "repository": {
     "type": "git",
     "url": "git://github.com/alex224/homebridge-openwebif-switch.git"
   },
   "dependencies": {
-      "request": "^2.65.0",
-      "net": "^1.0.2"
+    "net": "^1.0.2",
+    "request": "^2.65.0",
+    "xml2js": "^0.4.19"
   }
 }
