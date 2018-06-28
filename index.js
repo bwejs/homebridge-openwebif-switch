@@ -8,6 +8,10 @@
 	module.exports = function (homebridge) {
 		Service = homebridge.hap.Service;
 		Characteristic = homebridge.hap.Characteristic;
+		inherits(OpenWebifSwitchAccessory.MediaInformationService, Service);
+		inherits(OpenWebifSwitchAccessory.NowPlayingService, Service);
+
+
 		homebridge.registerAccessory("homebridge-openwebif-switch", "OpenWebifSwitch", OpenWebifSwitchAccessory);
 	}
 
@@ -21,30 +25,35 @@
 		this.port = config["port"] || 80;
 		this.checkIntervalSeconds = config["checkIntervalSeconds"] || 120;
 		this.excludeSpeakerService = config["excludeSpeakerService"] || false;
+		this.excludeMediaService = config["excludeMediaService"] || false;
+
+		this.channelChars = [];
+
+		this.bouquets = config['bouquets'] || [];
 
 		var me = this;
+
+		me._printBouquets();
+
 		if (this.checkIntervalSeconds > 0) {
 			setInterval(function () {
-				me.getPowerState(function (error, value) {
-					if (error) {
-
-					} else {
-						me.switchService.setCharacteristic(Characteristic.On, value);
-					}
-				});
-				if (!this.excludeSpeakerService){
-				me.getVolume(function (error, value) {
-					if (error) {
-
-					} else {
-						me.speakerService.setCharacteristic(Characteristic.Volume, value);
-					}
-				});
-				}
+				me.defaultUpdate();
 			}, me.checkIntervalSeconds * 1000);
-
+			me.defaultUpdate();
 		}
 	}
+	OpenWebifSwitchAccessory.MediaInformationService = function(name,subtype) {
+	  Service.call(this, name, '0F1C748A-0D31-449F-8E43-2E9611050B4A', subtype);
+	  // Optional Characteristics
+	  this.UUID = '0F1C748A-0D31-449F-8E43-2E9611050B4A';
+	};
+
+	OpenWebifSwitchAccessory.NowPlayingService = function(name) {
+	  Service.call(this, name, 'F7138C87-EABF-420A-BFF0-76FC04DD81CD', null);
+
+	  // Optional Characteristics
+	  this.UUID = 'F7138C87-EABF-420A-BFF0-76FC04DD81CD';
+	};
 
 	OpenWebifSwitchAccessory.prototype = {
 
@@ -165,6 +174,67 @@
 				}
 			});
 		},
+		getCurrentTitleWithRef: function ( callback,ref) {
+			var me = this;
+
+			this._httpXMLGetForMethod("/web/epgservicenow?sRef=" + ref, function (error,data) {
+				if (error){
+					callback(error)
+				} else {
+					var title = data.e2eventlist.e2event[0].e2eventtitle;
+
+					callback(null, String(title));
+				}
+			});
+		},
+		getCurrentTitle: function (callback) {
+
+			var me = this;
+			this._httpXMLGetForMethod("/web/getcurrent", function (error,data) {
+				if (error){
+					callback(error)
+				} else {
+					var title = data.e2currentserviceinformation.e2eventlist[0].e2event[0].e2eventtitle;
+					var serviceRef = data.e2currentserviceinformation.e2service[0].e2servicereference[0];
+
+					me.markAllChannels(serviceRef);
+					callback(null, String(title));
+				}
+			});
+		},
+		getCurrentService: function (callback) {
+			var me = this;
+			this._httpXMLGetForMethod("/web/getcurrent", function (error,data) {
+				if (error){
+					callback(error)
+				} else {
+					var title = data.e2currentserviceinformation.e2eventlist[0].e2event[0].e2eventservicename;
+					callback(null, String(title));
+				}
+			});
+		},
+		defaultUpdate: function () {
+			var me = this;
+			me.getPowerState(function (error, value) {
+				if (error) {
+
+				} else {
+					me.switchService.getCharacteristic(Characteristic.On).updateValue(value);
+				}
+			});
+			me.getCurrentTitle(function(error, value) {
+
+			});
+			if (!this.excludeSpeakerService){
+				me.getVolume(function (error, value) {
+					if (error) {
+
+						} else {
+							me.speakerService.getCharacteristic(Characteristic.Volume).updateValue(value);
+				}
+			});
+			}
+		},
 
 		getDiscSpace: function (callback) {
 			var me = this;
@@ -190,6 +260,7 @@
 		},
 
 		getServices: function () {
+			var me = this;
 			var informationService = new Service.AccessoryInformation();
 			informationService
 			.setCharacteristic(Characteristic.Manufacturer, "alex224")
@@ -197,6 +268,7 @@
 			.setCharacteristic(Characteristic.SerialNumber, "OpenWebifSwitch Serial Number");
 
 			this.switchService = new Service.Switch(this.name);
+			this.switchService.subtype = "default";
 			this.switchService
 			.getCharacteristic(Characteristic.On)
 			.on('get', this.getPowerState.bind(this))
@@ -210,6 +282,21 @@
 				this.switchService.setCharacteristic(this.makeIPCharacteristic(this.host), this.host);
 			}
 			var services = [informationService, this.switchService];
+
+			if (!this.excludeMediaService){
+				this.nowPlayingService = new OpenWebifSwitchAccessory.NowPlayingService(this.name);
+
+				this.nowPlayingService.addCharacteristic(this.makeNowPlayingTitleCharacteristic())
+				.on('get', this.getCurrentTitle.bind(this));
+
+				this.nowPlayingService.addCharacteristic(this.makeNowPlayingAlbumCharacteristic(""))
+				.on('get', this.getCurrentService.bind(this));
+
+				services.push(this.nowPlayingService);
+			}
+
+
+
 			if (!this.excludeSpeakerService){
 				this.speakerService = new Service.Speaker(this.name);
 				this.speakerService
@@ -221,6 +308,36 @@
 				.on('get', this.getMute.bind(this))
 				.on('set', this.setMute.bind(this));
 				services.push(this.speakerService);
+			}
+
+			var arrayLength = this.bouquets.length;
+			for (var i = 0; i < arrayLength; i++) {
+				var bouquet = this.bouquets[i];
+
+				var senderList = bouquet.channels;
+				var senderListLength = senderList.length;
+				for (var j = 0; j < senderListLength; j++) {
+					var sender = senderList[j];
+					var ser = new OpenWebifSwitchAccessory.MediaInformationService(sender.name, sender.reference);
+					var ref = sender.reference
+
+					ser.addCharacteristic(this.makeNowPlayingAlbumCharacteristic(sender.name));
+
+					var char = this.makeNowPlayingTitleCharacteristic(ref, this)
+					ser.addCharacteristic(char)
+					.on('get', char.getCurrent.bind(char));
+
+					var charChannel = this.makeSwitchChannelCharacteristic(ref, this, ser)
+
+					ser.addCharacteristic(charChannel)
+					.on('set', charChannel.switchChannel.bind(charChannel));
+					this.channelChars.push(charChannel);
+
+					ser.setCharacteristic(Characteristic.Name, sender.name);
+
+					services.push(ser);
+				}
+
 			}
 			return services;
 		},
@@ -248,6 +365,83 @@
 			inherits(volumeCharacteristic, Characteristic);
 			return volumeCharacteristic;
 		},
+		makeNowPlayingTitleCharacteristic : function(ref, acc) {
+			var generated = function() {
+				Characteristic.call(this, 'Title', '00003001-0000-1000-8000-135D67EC4377');
+				this.setProps({
+					format: Characteristic.Formats.STRING,
+					perms: [Characteristic.Perms.READ, Characteristic.Perms.NOTIFY]
+				});
+				this.value = "";
+				this.ref = ref
+				this.acc = acc
+
+			};
+
+			inherits(generated, Characteristic);
+			generated.getCurrent = function(callback) {
+					acc.getCurrentTitleWithRef( function(error, value){
+						callback(null, value);
+				},ref);
+			};
+			return generated;
+		},
+
+		makeNowPlayingAlbumCharacteristic : function(startValue) {
+			var generated = function() {
+				Characteristic.call(this, 'Sender', '00003002-0000-1000-8000-135D67EC4377');
+				this.setProps({
+					format: Characteristic.Formats.STRING,
+					perms: [Characteristic.Perms.READ, Characteristic.Perms.NOTIFY]
+				});
+				this.value = startValue;
+			};
+
+			inherits(generated, Characteristic);
+			return generated;
+		},
+
+		makeSwitchChannelCharacteristic : function(ref, acc, serv) {
+			var generated = function() {
+				Characteristic.call(this, 'Switch Channel', '27E13A21-A9A5-40B3-9E6A-390777887656');
+				this.setProps({
+					format: Characteristic.Formats.BOOL,
+	 				perms: [Characteristic.Perms.WRITE, Characteristic.Perms.READ, Characteristic.Perms.NOTIFY]
+				});
+				this.value = false;
+				this.ref = ref;
+				this.acc = acc;
+			};
+
+			inherits(generated, Characteristic);
+			generated.ref = ref;
+			generated.ser = serv;
+			generated.switchChannel = function(value, callback) {
+				callback(null, false);
+
+				if (value == false){
+					return;
+				}
+					acc._httpXMLGetForMethod("/web/zap?sRef=" + ref,  function (error,data) {
+						acc.markAllChannels(ref);
+						acc.defaultUpdate();
+					});
+			};
+			return generated;
+		},
+		markAllChannels : function(ref) {
+			var list = this.channelChars;
+			var lenght = list.length;
+			for (var j = 0; j < lenght; j++) {
+				var char = list[j];
+
+				if(char.ref == ref){
+					char.ser.getCharacteristic('Switch Channel').updateValue(true);
+				} else {
+					char.ser.getCharacteristic('Switch Channel').updateValue(false);
+				}
+			}
+		},
 
 		makeIPCharacteristic : function(ip) {
 			var volumeCharacteristic = function() {
@@ -273,7 +467,49 @@
 				callback(error, response, body);
 			});
 		},
+		_printBouquets: function() {
+			var me = this;
+			this._httpXMLGetForMethod("/web/getservices", function (error,data) {
+				if (error){
+				} else {
+					var servicList = data.e2servicelist.e2service;
 
+					var arrayLength = servicList.length;
+					for (var i = 0; i < arrayLength; i++) {
+						var service = servicList[i];
+						let name = service.e2servicename[0];
+						let ref = service.e2servicereference[0];
+						me._printBouquetsDetail(ref, name);
+					}
+
+				}
+			});
+		},
+		_printBouquetsDetail: function(ref, name) {
+			var me = this;
+			this._httpXMLGetForMethod("/web/getservices?sRef=" + ref, function (error,data) {
+				if (error){
+				} else {
+					var servicList = data.e2servicelist.e2service;
+					var arr = [];
+
+					var arrayLength = servicList.length;
+					for (var i = 0; i < arrayLength; i++) {
+						var service = servicList[i];
+						let name = service.e2servicename[0];
+						let ref = service.e2servicereference[0];
+						var object = {"name":name, "reference": ref};
+						arr.push(object);
+					}
+					var json = {"name":name, "reference": ref, "channels" : arr };
+
+					var string =  JSON.stringify(json, null, 2);
+					me.log('JSON for adding to bouquet array in config: %s', string);
+
+
+				}
+			});
+		},
 		_httpXMLGetForMethod: function (method, callback) {
 			if (!this.host) {
 				callback(new Error("No host defined."));
@@ -296,7 +532,7 @@
 										callback(err, null);
 										me.log('error parsing: ' + err);
 									} else {
-										me.log('parsed xml for method %s', method);
+									//	me.log('parsed xml for method %s', method);
 										callback(null, data);
 									}
 								});
