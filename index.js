@@ -84,7 +84,7 @@
 					callback(error)
 				} else {
 					var xmlValue = data.e2powerstate.e2instandby[0];
-					var powerOn = xmlValue == "false";
+					var powerOn = xmlValue.includes("false");
 					var characteristicValue = powerOn;
 					callback(null, characteristicValue);
 				}
