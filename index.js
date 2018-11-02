@@ -32,7 +32,7 @@
 						me.switchService.setCharacteristic(Characteristic.On, value);
 					}
 				});
-				if (!this.excludeSpeakerService){
+				if (!me.excludeSpeakerService){
 				me.getVolume(function (error, value) {
 					if (error) {
 
